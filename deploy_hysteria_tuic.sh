@@ -66,7 +66,37 @@ esac
 ensure_deps() {
   log "安装基础依赖..."
   apt update
-  apt install -y curl wget tar socat cron openssl uuid-runtime
+  apt install -y curl wget tar socat cron openssl uuid-runtime iptables
+}
+
+open_firewall_ports() {
+  local ports=("$@")
+  log "检测并放行防火墙端口: ${ports[*]}..."
+
+  if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
+    for p in "${ports[@]}"; do
+      ufw allow "${p}"/tcp || err "UFW 放行端口 ${p} 失败，请手动检查。"
+    done
+    return
+  fi
+
+  if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+    for p in "${ports[@]}"; do
+      firewall-cmd --permanent --add-port="${p}/tcp" || err "firewalld 放行端口 ${p} 失败，请手动检查。"
+    done
+    firewall-cmd --reload >/dev/null 2>&1 || true
+    return
+  fi
+
+  if command -v iptables >/dev/null 2>&1; then
+    for p in "${ports[@]}"; do
+      if ! iptables -C INPUT -p tcp --dport "${p}" -j ACCEPT >/dev/null 2>&1; then
+        iptables -I INPUT -p tcp --dport "${p}" -j ACCEPT || err "iptables 放行端口 ${p} 失败，请手动检查。"
+      fi
+    done
+  else
+    log "未检测到常用防火墙（ufw/firewalld/iptables），跳过自动放行。"
+  fi
 }
 
 install_acme() {
@@ -189,6 +219,7 @@ EOF
 }
 
 ensure_deps
+open_firewall_ports 80 "$PORT"
 install_acme
 
 if [[ "$PROTO" == "hysteria2" ]]; then
