@@ -131,15 +131,21 @@ install_acme() {
 
 install_hysteria2() {
   local version release_json download_url fallback_version fallback_url
-  release_json=$(curl -fsSL https://api.github.com/repos/apernet/hysteria/releases/latest || true)
-  version=$(echo "$release_json" | grep -m1 '"tag_name":' | cut -d '"' -f4)
-  version=${version:-v2.5.2}
-  download_url=$(echo "$release_json" | grep -o "https://[^\"]*hysteria-linux-${ARCH}\\.tar\\.gz" | head -n1)
-  if [[ -z "$download_url" ]]; then
-    download_url="https://github.com/apernet/hysteria/releases/download/${version}/hysteria-linux-${ARCH}.tar.gz"
-  fi
   fallback_version="v2.5.2"
   fallback_url="https://github.com/apernet/hysteria/releases/download/${fallback_version}/hysteria-linux-${ARCH}.tar.gz"
+  release_json=$(curl -fsSL https://api.github.com/repos/apernet/hysteria/releases/latest || true)
+  version=$(echo "$release_json" | grep -m1 '"tag_name":' | cut -d '"' -f4)
+  version=${version:-$fallback_version}
+  download_url=$({
+    echo "$release_json" |
+      grep -o "https://[^\"]*hysteria-linux-${ARCH}\\.tar\\.gz" |
+      head -n1
+  } || true)
+  if [[ -z "$download_url" ]]; then
+    log "未能解析最新发布地址，回退到固定版本 ${fallback_version}。"
+    version="$fallback_version"
+    download_url="$fallback_url"
+  fi
 
   log "下载 Hysteria2（版本: ${version}）..."
   TMP_DIR=$(mktemp -d)
@@ -149,6 +155,7 @@ install_hysteria2() {
     err "无法从 ${download_url} 获取二进制包，尝试回退下载..."
     download_url="$fallback_url"
     version="$fallback_version"
+    log "回退到固定版本 ${fallback_version} 下载..."
     if ! wget -q "$download_url"; then
       err "回退版本（${fallback_version}）下载失败，请检查网络或发布页面。"
       exit 1
