@@ -107,6 +107,9 @@ open_firewall_ports() {
 }
 
 install_acme() {
+  local reload_cmd
+  reload_cmd="sh -c 'if systemctl cat ${PROTO}.service >/dev/null 2>&1; then systemctl reload ${PROTO}.service >/dev/null 2>&1 || true; fi'"
+
   if [[ ! -d "$HOME/.acme.sh" ]]; then
     log "安装 acme.sh..."
     curl https://get.acme.sh | sh ${CERT_EMAIL:+-s email=$CERT_EMAIL}
@@ -118,23 +121,40 @@ install_acme() {
   ~/.acme.sh/acme.sh --issue -d "$DEPLOY_DOMAIN" --standalone --force --keylength ec-256
   CERT_DIR="/etc/ssl/$DEPLOY_DOMAIN"
   mkdir -p "$CERT_DIR"
-  log "安装证书并执行 reloadcmd: systemctl reload ${PROTO}.service || true"
+  log "安装证书，若已存在对应服务则尝试 reload..."
   ~/.acme.sh/acme.sh --install-cert -d "$DEPLOY_DOMAIN" \
     --ecc --fullchain-file "$CERT_DIR/cert.pem" \
-    --key-file "$CERT_DIR/key.pem" --reloadcmd "systemctl reload ${PROTO}.service || true"
+    --key-file "$CERT_DIR/key.pem" --reloadcmd "$reload_cmd"
   CERT_PATH="$CERT_DIR/cert.pem"
   KEY_PATH="$CERT_DIR/key.pem"
 }
 
 install_hysteria2() {
-  local version
-  version=$(curl -s https://api.github.com/repos/apernet/hysteria/releases/latest | grep tag_name | head -1 | cut -d '"' -f4)
+  local version release_json download_url fallback_version fallback_url
+  release_json=$(curl -fsSL https://api.github.com/repos/apernet/hysteria/releases/latest || true)
+  version=$(echo "$release_json" | grep -m1 '"tag_name":' | cut -d '"' -f4)
   version=${version:-v2.5.2}
-  log "下载 Hysteria2 ${version}..."
+  download_url=$(echo "$release_json" | grep -o "https://[^\"]*hysteria-linux-${ARCH}\\.tar\\.gz" | head -n1)
+  if [[ -z "$download_url" ]]; then
+    download_url="https://github.com/apernet/hysteria/releases/download/${version}/hysteria-linux-${ARCH}.tar.gz"
+  fi
+  fallback_version="v2.5.2"
+  fallback_url="https://github.com/apernet/hysteria/releases/download/${fallback_version}/hysteria-linux-${ARCH}.tar.gz"
+
+  log "下载 Hysteria2（版本: ${version}）..."
   TMP_DIR=$(mktemp -d)
   pushd "$TMP_DIR" >/dev/null
   FILE="hysteria-linux-${ARCH}.tar.gz"
-  wget -q "https://github.com/apernet/hysteria/releases/download/${version}/${FILE}"
+  if ! wget -q "$download_url"; then
+    err "无法从 ${download_url} 获取二进制包，尝试回退下载..."
+    download_url="$fallback_url"
+    version="$fallback_version"
+    if ! wget -q "$download_url"; then
+      err "回退版本（${fallback_version}）下载失败，请检查网络或发布页面。"
+      exit 1
+    fi
+  fi
+  log "已下载来源: ${download_url}"
   tar -xzf "$FILE"
   install -m 755 hysteria /usr/local/bin/hysteria
   popd >/dev/null
