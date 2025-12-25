@@ -131,8 +131,8 @@ install_acme() {
 
 install_hysteria2() {
   local version release_json download_url fallback_version fallback_url
-  fallback_version="v2.5.2"
-  fallback_url="https://github.com/apernet/hysteria/releases/download/${fallback_version}/hysteria-linux-${ARCH}.tar.gz"
+  fallback_version="app/v2.6.5"
+  fallback_url="https://github.com/apernet/hysteria/releases/download/${fallback_version}/hysteria-linux-${ARCH}"
   release_json=$(curl -fsSL https://api.github.com/repos/apernet/hysteria/releases/latest || true)
   version=$(echo "$release_json" | grep -m1 '"tag_name":' | cut -d '"' -f4)
   version=${version:-$fallback_version}
@@ -141,6 +141,16 @@ install_hysteria2() {
       grep -o "https://[^\"]*hysteria-linux-${ARCH}\\.tar\\.gz" |
       head -n1
   } || true)
+
+  # 新版发布的资产为裸二进制（无 .tar.gz 后缀），若未找到压缩包则尝试匹配裸二进制。
+  if [[ -z "$download_url" ]]; then
+    download_url=$({
+      echo "$release_json" |
+        grep -o "https://[^\"]*hysteria-linux-${ARCH}\\b" |
+        head -n1
+    } || true)
+  fi
+
   if [[ -z "$download_url" ]]; then
     log "未能解析最新发布地址，回退到固定版本 ${fallback_version}。"
     version="$fallback_version"
@@ -150,20 +160,26 @@ install_hysteria2() {
   log "下载 Hysteria2（版本: ${version}）..."
   TMP_DIR=$(mktemp -d)
   pushd "$TMP_DIR" >/dev/null
-  FILE="hysteria-linux-${ARCH}.tar.gz"
-  if ! wget -q "$download_url"; then
+  FILE=$(basename "$download_url")
+  if ! wget -q -O "$FILE" "$download_url"; then
     err "无法从 ${download_url} 获取二进制包，尝试回退下载..."
     download_url="$fallback_url"
     version="$fallback_version"
     log "回退到固定版本 ${fallback_version} 下载..."
-    if ! wget -q "$download_url"; then
+    FILE=$(basename "$download_url")
+    if ! wget -q -O "$FILE" "$download_url"; then
       err "回退版本（${fallback_version}）下载失败，请检查网络或发布页面。"
       exit 1
     fi
   fi
   log "已下载来源: ${download_url}"
-  tar -xzf "$FILE"
-  install -m 755 hysteria /usr/local/bin/hysteria
+
+  if [[ "$FILE" == *.tar.gz ]]; then
+    tar -xzf "$FILE"
+    install -m 755 hysteria /usr/local/bin/hysteria
+  else
+    install -m 755 "$FILE" /usr/local/bin/hysteria
+  fi
   popd >/dev/null
   rm -rf "$TMP_DIR"
 
