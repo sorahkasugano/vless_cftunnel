@@ -1,5 +1,12 @@
 #!/bin/bash
 set -euo pipefail
+set -o errtrace
+
+trap 'err "命令执行失败: '\''${BASH_COMMAND}'\'' (退出码 $?)，位于第 ${LINENO} 行"' ERR
+
+if [[ ${DEBUG_TRACE:-0} -eq 1 ]]; then
+  set -x
+fi
 
 if [[ $(id -u) -ne 0 ]]; then
   echo "❌ 请以 root 权限运行此脚本。"
@@ -107,9 +114,11 @@ install_acme() {
   source "$HOME/.acme.sh/acme.sh.env"
   log "申请证书..."
   ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
+  log "执行证书申请命令..."
   ~/.acme.sh/acme.sh --issue -d "$DEPLOY_DOMAIN" --standalone --force --keylength ec-256
   CERT_DIR="/etc/ssl/$DEPLOY_DOMAIN"
   mkdir -p "$CERT_DIR"
+  log "安装证书并执行 reloadcmd: systemctl reload ${PROTO}.service || true"
   ~/.acme.sh/acme.sh --install-cert -d "$DEPLOY_DOMAIN" \
     --ecc --fullchain-file "$CERT_DIR/cert.pem" \
     --key-file "$CERT_DIR/key.pem" --reloadcmd "systemctl reload ${PROTO}.service || true"
