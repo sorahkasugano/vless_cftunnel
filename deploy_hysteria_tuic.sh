@@ -150,22 +150,18 @@ install_hysteria2() {
   fallback_version="app/v2.6.5"
   fallback_url="https://github.com/apernet/hysteria/releases/download/${fallback_version}/hysteria-linux-${ARCH}"
   release_json=$(curl -fsSL https://api.github.com/repos/apernet/hysteria/releases/latest || true)
-  version=$(echo "$release_json" | grep -m1 '"tag_name":' | cut -d '"' -f4)
+
+  # 解析最新版本与下载地址，若接口不可用则使用回退版本。
+  set +o pipefail
+  version=$(echo "$release_json" | grep -m1 '"tag_name":' | cut -d '"' -f4 || true)
   version=${version:-$fallback_version}
-  download_url=$({
-    echo "$release_json" |
-      grep -o "https://[^\"]*hysteria-linux-${ARCH}\\.tar\\.gz" |
-      head -n1
-  } || true)
+  download_url=$(echo "$release_json" | grep -o "https://[^\"]*hysteria-linux-${ARCH}\\.tar\\.gz" | head -n1 || true)
 
   # 新版发布的资产为裸二进制（无 .tar.gz 后缀），若未找到压缩包则尝试匹配裸二进制。
   if [[ -z "$download_url" ]]; then
-    download_url=$({
-      echo "$release_json" |
-        grep -o "https://[^\"]*hysteria-linux-${ARCH}\\b" |
-        head -n1
-    } || true)
+    download_url=$(echo "$release_json" | grep -o "https://[^\"]*hysteria-linux-${ARCH}\\b" | head -n1 || true)
   fi
+  set -o pipefail
 
   if [[ -z "$download_url" ]]; then
     log "未能解析最新发布地址，回退到固定版本 ${fallback_version}。"
