@@ -205,13 +205,6 @@ tls:
 auth:
   type: password
   password: $HYSTERIA_PASSWORD
-masquerade:
-  type: http
-  listen: 127.0.0.1:80
-  rewrite:
-    - location: /
-      body: |
-        <html><body><h1>It works!</h1></body></html>
 transport:
   udp:
     hop_interval: 30s
@@ -288,12 +281,14 @@ install_acme
 
 if [[ "$PROTO" == "hysteria2" ]]; then
   install_hysteria2
+  V2RAYN_LINK="hysteria2://${HYSTERIA_PASSWORD}@${DEPLOY_DOMAIN}:${PORT}/?sni=${DEPLOY_DOMAIN}&alpn=h3&insecure=0#${DEPLOY_DOMAIN}"
   echo -e "\n✅ Hysteria2 部署完成！"
   echo "节点信息："
   echo "协议: hysteria2"
   echo "地址: $DEPLOY_DOMAIN:$PORT"
   echo "密码: $HYSTERIA_PASSWORD"
   echo "ALPN: h3"
+  echo "v2rayN 链接: $V2RAYN_LINK"
 else
   install_tuic
   echo -e "\n✅ TUIC 部署完成！"
