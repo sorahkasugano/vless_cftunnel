@@ -26,6 +26,10 @@ if [[ -z "$DEPLOY_DOMAIN" ]]; then
   exit 1
 fi
 
+CERT_DIR="/etc/ssl/$DEPLOY_DOMAIN"
+CERT_PATH="$CERT_DIR/cert.pem"
+KEY_PATH="$CERT_DIR/key.pem"
+
 read -rp "请输入申请证书用的邮箱 (可选，留空则使用 acme 默认): " CERT_EMAIL
 read -rp "监听端口 [${DEFAULT_PORT}]: " INPUT_PORT
 PORT=${INPUT_PORT:-$DEFAULT_PORT}
@@ -107,26 +111,38 @@ open_firewall_ports() {
 }
 
 install_acme() {
-  local reload_cmd
+  local reload_cmd renew_margin need_issue
   reload_cmd="sh -c 'if systemctl cat ${PROTO}.service >/dev/null 2>&1; then systemctl reload ${PROTO}.service >/dev/null 2>&1 || true; fi'"
+  renew_margin=${CERT_RENEW_MARGIN:-2592000} # 默认 30 天
 
   if [[ ! -d "$HOME/.acme.sh" ]]; then
     log "安装 acme.sh..."
     curl https://get.acme.sh | sh ${CERT_EMAIL:+-s email=$CERT_EMAIL}
   fi
   source "$HOME/.acme.sh/acme.sh.env"
-  log "申请证书..."
   ~/.acme.sh/acme.sh --set-default-ca --server letsencrypt
-  log "执行证书申请命令..."
-  ~/.acme.sh/acme.sh --issue -d "$DEPLOY_DOMAIN" --standalone --force --keylength ec-256
-  CERT_DIR="/etc/ssl/$DEPLOY_DOMAIN"
+
   mkdir -p "$CERT_DIR"
+
+  need_issue=1
+  if [[ -f "$CERT_PATH" && -f "$KEY_PATH" ]]; then
+    if openssl x509 -checkend "$renew_margin" -noout -in "$CERT_PATH" >/dev/null 2>&1; then
+      log "检测到未过期的证书，跳过重新申请。"
+      need_issue=0
+    else
+      log "证书即将过期或无效，尝试重新申请..."
+    fi
+  fi
+
+  if [[ $need_issue -eq 1 ]]; then
+    log "申请证书..."
+    ~/.acme.sh/acme.sh --issue -d "$DEPLOY_DOMAIN" --standalone --force --keylength ec-256
+  fi
+
   log "安装证书，若已存在对应服务则尝试 reload..."
   ~/.acme.sh/acme.sh --install-cert -d "$DEPLOY_DOMAIN" \
     --ecc --fullchain-file "$CERT_DIR/cert.pem" \
     --key-file "$CERT_DIR/key.pem" --reloadcmd "$reload_cmd"
-  CERT_PATH="$CERT_DIR/cert.pem"
-  KEY_PATH="$CERT_DIR/key.pem"
 }
 
 install_hysteria2() {
