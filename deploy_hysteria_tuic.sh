@@ -86,14 +86,16 @@ open_firewall_ports() {
 
   if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then
     for p in "${ports[@]}"; do
-      ufw allow "${p}"/tcp || err "UFW 放行端口 ${p} 失败，请手动检查。"
+      ufw allow "${p}"/tcp || err "UFW 放行 TCP 端口 ${p} 失败，请手动检查。"
+      ufw allow "${p}"/udp || err "UFW 放行 UDP 端口 ${p} 失败，请手动检查。"
     done
     return
   fi
 
   if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
     for p in "${ports[@]}"; do
-      firewall-cmd --permanent --add-port="${p}/tcp" || err "firewalld 放行端口 ${p} 失败，请手动检查。"
+      firewall-cmd --permanent --add-port="${p}/tcp" || err "firewalld 放行 TCP 端口 ${p} 失败，请手动检查。"
+      firewall-cmd --permanent --add-port="${p}/udp" || err "firewalld 放行 UDP 端口 ${p} 失败，请手动检查。"
     done
     firewall-cmd --reload >/dev/null 2>&1 || true
     return
@@ -102,7 +104,10 @@ open_firewall_ports() {
   if command -v iptables >/dev/null 2>&1; then
     for p in "${ports[@]}"; do
       if ! iptables -C INPUT -p tcp --dport "${p}" -j ACCEPT >/dev/null 2>&1; then
-        iptables -I INPUT -p tcp --dport "${p}" -j ACCEPT || err "iptables 放行端口 ${p} 失败，请手动检查。"
+        iptables -I INPUT -p tcp --dport "${p}" -j ACCEPT || err "iptables 放行 TCP 端口 ${p} 失败，请手动检查。"
+      fi
+      if ! iptables -C INPUT -p udp --dport "${p}" -j ACCEPT >/dev/null 2>&1; then
+        iptables -I INPUT -p udp --dport "${p}" -j ACCEPT || err "iptables 放行 UDP 端口 ${p} 失败，请手动检查。"
       fi
     done
   else
